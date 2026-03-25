@@ -19,9 +19,9 @@ COPY . .
 RUN npm run build
 
 ENV NODE_ENV=production
-ENV PORT=3001
+ENV PORT=8000
 ENV DATABASE_PATH=/app/database.sqlite
 
-EXPOSE 3001
+EXPOSE 8000
 
 CMD ["node", "dist/index.js"]
