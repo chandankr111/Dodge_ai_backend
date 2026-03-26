@@ -3,6 +3,17 @@ import { getDb } from '../db/connection.js';
 
 type LLMProvider = 'groq' | 'gemini';
 
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error("LLM Timeout")), ms)
+    )
+  ]);
+}
+
+
 function getLLMConfig(): {
   provider: LLMProvider;
   geminiApiKey?: string;
@@ -1286,10 +1297,10 @@ export async function handleChatQuery(
     if (docMatch && docMatch[1]) {
       const flowData = traceDocumentFlow(docMatch[1]);
       if (flowData && flowData.flow.length > 0) {
-        const answer = await summarizeResults(
-          question,
-          'TRACE_FLOW',
-          flowData
+       
+        const answer = await withTimeout(
+          summarizeResults(question, 'TRACE_FLOW', flowData),
+          8000
         );
         return {
           answer,
@@ -1310,7 +1321,9 @@ export async function handleChatQuery(
   // ── Step 4: Handle BROKEN FLOW ──────────────────────────────
   if (queryType === 'BROKEN_FLOW') {
     const prebuiltSQL = getBrokenFlowSQL(question);
-    const sql = prebuiltSQL || (await generateSQL(question));
+   
+    const sql = prebuiltSQL || (await withTimeout(generateSQL(question), 8000));
+
     const { data, error } = executeSQL(sql);
 
     if (error || data.length === 0) {
@@ -1326,6 +1339,9 @@ export async function handleChatQuery(
     }
 
     const answer = await summarizeResults(question, sql, data);
+
+
+   
     return {
       answer,
       sql,
@@ -1336,14 +1352,24 @@ export async function handleChatQuery(
   }
 
   // ── Step 5: Handle GENERAL SQL query ───────────────────────
-  const sql = await generateSQL(question);
+
+
+  const sql = await withTimeout(generateSQL(question), 8000);
   const { data, error } = executeSQL(sql);
 
   if (error) {
     // Retry once with error context
-    const fixedSql = await generateSQL(
-      `${question}\n\nThe previous SQL failed with: "${error}". Write a corrected SQLite query.`
+  
+
+
+
+    const fixedSql = await withTimeout(
+      generateSQL(
+        `${question}\n\nThe previous SQL failed with: "${error}". Write a corrected SQLite query.`
+      ),
+      8000
     );
+  
     const retry = executeSQL(fixedSql);
 
     if (retry.error || retry.data.length === 0) {
@@ -1368,7 +1394,13 @@ export async function handleChatQuery(
     };
   }
 
-  const answer = await summarizeResults(question, sql, data);
+
+  const answer = await withTimeout(
+    summarizeResults(question, sql, data),
+    8000
+  );
+
+
   return {
     answer,
     sql,
